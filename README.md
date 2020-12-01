@@ -28,7 +28,7 @@ Annotate your service accounts and the operator will create the corresponding
 login role and aws secret role in Vault at
 `auth/kubernetes/roles/<prefix>_aws_<namespace>_<name>` and
 `aws/role/<prefix>_aws_<namespace>_<name>` respectively, where `<prefix>` is the
-string supplied with the `-prefix` flag (default: `vkcc`)
+`prefix` provided in the configuration file (default: `vkcc`)
 
 ```
 apiVersion: v1
@@ -41,10 +41,38 @@ metadata:
 
 ### Config file
 
-You can control which service accounts can assume which roles based on their
-namespace by passing a yaml file to the operator with the flag `-config-file`.
+The operator can be configured by a yaml file passed to the operator with the
+flag `-config-file`.
 
-For example, the following configuration allows service accounts in `kube-system` 
+If no file is provided then the defaults are used:
+
+```
+# The mount path of the kubernetes auth backend
+kubernetesAuthBackend: "kubernetes"
+
+# The address that operator metrics will be served on
+metricsAddress: ":8080"
+
+# The prefix that will be appended to objects created in Vault by the operator
+prefix: "vkcc"
+
+# Configuration for the AWS secret backend
+aws:
+  # The mount path of the AWS secret backend
+  path: aws
+
+  # Rules that govern which service accounts can assume which roles
+  rules: []
+```
+
+Omitted fields also receive the default values.
+
+#### Rules
+
+You can control which service accounts can assume which roles based on their
+namespace by setting rules under `aws.rules`.
+
+For example, the following configuration allows service accounts in `kube-system`
 and namespaces prefixed with `system-` to assume roles under the `sysadmin/*` path,
 roles that begin with `sysadmin-` or a specific `org/s3-admin` role in the accounts
 `000000000000` and `111111111111`.
@@ -106,7 +134,7 @@ applicably:
 - `VAULT_ADDR`: the address of the Vault server (default: `https://127.0.0.1:8200`)
 - `VAULT_CACERT`: path to a CA certificate file used to verify the Vault server's certificate
 
-## Renewal
+### Renewal
 
 The sidecar will retrieve new credentials after 1/3 of the current TTL has
 elapsed. So, if the credentials are valid for an hour then the sidecar will
