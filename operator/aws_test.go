@@ -46,15 +46,13 @@ func TestAWSOperatorReconcile(t *testing.T) {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	a, err := NewAWSOperator(&AWSOperatorConfig{
-		Config: &Config{
-			KubeClient:            fakeKubeClient,
-			KubernetesAuthBackend: "kubernetes",
-			Prefix:                "vkcc",
-			VaultClient:           core.Client,
-			VaultConfig:           vaultapi.DefaultConfig(),
-		},
-		AWSPath:    "aws",
-		DefaultTTL: 3600 * time.Second,
+		DefaultTTL:            3600 * time.Second,
+		KubeClient:            fakeKubeClient,
+		KubernetesAuthBackend: "kubernetes",
+		Prefix:                "vkcc",
+		VaultClient:           core.Client,
+		VaultConfig:           vaultapi.DefaultConfig(),
+		Path:                  "aws",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -163,14 +161,12 @@ func TestOperatorReconcileDelete(t *testing.T) {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	a, err := NewAWSOperator(&AWSOperatorConfig{
-		Config: &Config{
-			KubeClient:            fakeKubeClient,
-			KubernetesAuthBackend: "kubernetes",
-			Prefix:                "vkcc",
-			VaultClient:           core.Client,
-			VaultConfig:           vaultapi.DefaultConfig(),
-		},
-		AWSPath: "aws",
+		KubeClient:            fakeKubeClient,
+		KubernetesAuthBackend: "kubernetes",
+		Prefix:                "vkcc",
+		VaultClient:           core.Client,
+		VaultConfig:           vaultapi.DefaultConfig(),
+		Path:                  "aws",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -255,28 +251,25 @@ func TestOperatorReconcileBlocked(t *testing.T) {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	a, err := NewAWSOperator(&AWSOperatorConfig{
-		Config: &Config{
-			KubeClient:            fakeKubeClient,
-			KubernetesAuthBackend: "kubernetes",
-			Prefix:                "vkcc",
-			VaultClient:           core.Client,
-			VaultConfig:           vaultapi.DefaultConfig(),
+		KubeClient:            fakeKubeClient,
+		KubernetesAuthBackend: "kubernetes",
+		Prefix:                "vkcc",
+		VaultClient:           core.Client,
+		VaultConfig:           vaultapi.DefaultConfig(),
+		Path:                  "aws",
+		Rules: AWSRules{
+			AWSRule{
+				NamespacePatterns: []string{
+					"notbar",
+				},
+				RoleNamePatterns: []string{
+					"not-foobar-role",
+				},
+			},
 		},
-		AWSPath: "aws",
 	})
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	a.rules = AWSRules{
-		AWSRule{
-			NamespacePatterns: []string{
-				"notbar",
-			},
-			RoleNamePatterns: []string{
-				"not-foobar-role",
-			},
-		},
 	}
 
 	// This shouldn't create the objects in vault
@@ -318,14 +311,12 @@ func TestAWSOperatorStart(t *testing.T) {
 	core := fakeVaultCluster.Cores[0]
 
 	a, err := NewAWSOperator(&AWSOperatorConfig{
-		Config: &Config{
-			KubeClient:            fakeKubeClient,
-			KubernetesAuthBackend: "kubernetes",
-			Prefix:                "vkcc",
-			VaultClient:           core.Client,
-			VaultConfig:           vaultapi.DefaultConfig(),
-		},
-		AWSPath: "aws",
+		KubeClient:            fakeKubeClient,
+		KubernetesAuthBackend: "kubernetes",
+		Prefix:                "vkcc",
+		VaultClient:           core.Client,
+		VaultConfig:           vaultapi.DefaultConfig(),
+		Path:                  "aws",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -445,7 +436,8 @@ func TestAWSOperatorAdmitEvent(t *testing.T) {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	o := &AWSOperator{
-		log: ctrl.Log.WithName("operator").WithName("aws"),
+		AWSOperatorConfig: &AWSOperatorConfig{},
+		log:               ctrl.Log.WithName("operator").WithName("aws"),
 	}
 
 	// Test that without any rules any valid event is admitted
@@ -461,7 +453,7 @@ func TestAWSOperatorAdmitEvent(t *testing.T) {
 	// iam)
 	assert.False(t, o.admitEvent("foobar", "arn:aws:iam:111111111111:role/foobar-role"))
 
-	o.rules = AWSRules{
+	o.Rules = AWSRules{
 		AWSRule{
 			NamespacePatterns: []string{
 				"foo",

@@ -3,12 +3,11 @@ package operator
 import (
 	"bytes"
 	"context"
-	"io/ioutil"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/go-logr/logr"
-	"gopkg.in/yaml.v2"
+	vault "github.com/hashicorp/vault/api"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 
@@ -19,6 +18,7 @@ import (
 	// Enables all auth methods for the kube client
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
@@ -28,20 +28,13 @@ const (
 )
 
 var awsPolicyTemplate = `
-path "{{ .AWSPath }}/creds/{{ .Name }}" {
+path "{{ .Path }}/creds/{{ .Name }}" {
   capabilities = ["create", "read", "update", "delete", "list"]
 }
-path "{{ .AWSPath }}/sts/{{ .Name }}" {
+path "{{ .Path }}/sts/{{ .Name }}" {
   capabilities = ["create", "read", "update", "delete", "list"]
 }
 `
-
-// awsFileConfig configures the AWS operator
-type awsFileConfig struct {
-	AWS struct {
-		Rules AWSRules `yaml:"rules"`
-	} `yaml:"aws"`
-}
 
 // AWSRules are a collection of rules.
 type AWSRules []AWSRule
@@ -141,18 +134,22 @@ func (ar *AWSRule) matchesRoleName(roleName string) (bool, error) {
 
 // AWSOperatorConfig provides configuration when creating a new Operator
 type AWSOperatorConfig struct {
-	*Config
-	AWSPath    string
-	DefaultTTL time.Duration
+	DefaultTTL            time.Duration
+	KubeClient            client.Client
+	KubernetesAuthBackend string
+	Path                  string
+	Prefix                string
+	Rules                 AWSRules
+	VaultClient           *vault.Client
+	VaultConfig           *vault.Config
 }
 
 // AWSOperator is responsible for creating Kubernetes auth roles and AWS secret
 // roles based on ServiceAccount annotations
 type AWSOperator struct {
 	*AWSOperatorConfig
-	log   logr.Logger
-	rules AWSRules
-	tmpl  *template.Template
+	log  logr.Logger
+	tmpl *template.Template
 }
 
 // NewAWSOperator returns a configured AWSOperator
@@ -171,31 +168,13 @@ func NewAWSOperator(config *AWSOperatorConfig) (*AWSOperator, error) {
 	return ar, nil
 }
 
-// LoadConfig loads configuration from a file
-func (o *AWSOperator) LoadConfig(file string) error {
-	afc := &awsFileConfig{}
-
-	data, err := ioutil.ReadFile(file)
-	if err != nil {
-		return err
-	}
-
-	if err := yaml.Unmarshal(data, afc); err != nil {
-		return err
-	}
-
-	o.rules = afc.AWS.Rules
-
-	return nil
-}
-
 // Start is ran when the manager starts up. We're using it to clear up orphaned
 // serviceaccounts that could have been missed while the operator was down
 func (o *AWSOperator) Start(stop <-chan struct{}) error {
 	o.log.Info("garbage collection started")
 
 	// AWS secret roles
-	awsRoleList, err := o.VaultClient.Logical().List(o.AWSPath + "/roles/")
+	awsRoleList, err := o.VaultClient.Logical().List(o.Path + "/roles/")
 	if err != nil {
 		return err
 	}
@@ -293,7 +272,7 @@ func (o *AWSOperator) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 // namespace by the rules laid out in the config file
 func (o *AWSOperator) admitEvent(namespace, roleArn string) bool {
 	if roleArn != "" {
-		allowed, err := o.rules.allow(namespace, roleArn)
+		allowed, err := o.Rules.allow(namespace, roleArn)
 		if err != nil {
 			o.log.Error(err, "error matching role arn against rules for namespace", "role_arn", roleArn, "namespace", namespace)
 		} else if allowed {
@@ -356,11 +335,11 @@ func (o *AWSOperator) parseKey(key string) (string, string, bool) {
 func (o *AWSOperator) renderAWSPolicyTemplate(name string) (string, error) {
 	var policy bytes.Buffer
 	if err := o.tmpl.Execute(&policy, struct {
-		AWSPath string
-		Name    string
+		Path string
+		Name string
 	}{
-		AWSPath: o.AWSPath,
-		Name:    name,
+		Path: o.Path,
+		Name: name,
 	}); err != nil {
 		return "", err
 	}
@@ -397,7 +376,7 @@ func (o *AWSOperator) writeToVault(namespace, serviceAccount string, data map[st
 	o.log.Info("Wrote kubernetes auth backend role", "namespace", namespace, "serviceaccount", serviceAccount, "key", n)
 
 	// Create aws secret backend role
-	if _, err := o.VaultClient.Logical().Write(o.AWSPath+"/roles/"+n, data); err != nil {
+	if _, err := o.VaultClient.Logical().Write(o.Path+"/roles/"+n, data); err != nil {
 		return err
 	}
 	o.log.Info("Wrote aws secret backend role", "namespace", namespace, "serviceaccount", serviceAccount, "key", n)
@@ -409,7 +388,7 @@ func (o *AWSOperator) writeToVault(namespace, serviceAccount string, data map[st
 func (o *AWSOperator) removeFromVault(namespace, serviceAccount string) error {
 	n := o.name(namespace, serviceAccount)
 
-	_, err := o.VaultClient.Logical().Delete(o.AWSPath + "/roles/" + n)
+	_, err := o.VaultClient.Logical().Delete(o.Path + "/roles/" + n)
 	if err != nil {
 		return err
 	}
