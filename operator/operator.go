@@ -1,7 +1,7 @@
 package operator
 
 import (
-	"os"
+	"fmt"
 
 	vault "github.com/hashicorp/vault/api"
 	corev1 "k8s.io/api/core/v1"
@@ -38,37 +38,59 @@ func New(cfg string) (*Operator, error) {
 		LeaderElection:     false,
 	})
 	if err != nil {
-		log.Error(err, "error creating manager")
-		os.Exit(1)
+		return nil, err
 	}
 
 	vaultConfig := vault.DefaultConfig()
 	vaultClient, err := vault.NewClient(vaultConfig)
 	if err != nil {
-		log.Error(err, "error creating vault client")
-		os.Exit(1)
+		return nil, err
 	}
 
-	a, err := newAWSBackend(&awsBackendConfig{
-		defaultTTL:  fc.AWS.DefaultTTL,
-		path:        fc.AWS.Path,
-		rules:       fc.AWS.Rules,
-		vaultClient: vaultClient,
-	})
-	if err != nil {
-		return nil, err
+	var backends []secretBackend
+
+	if fc.AWS.Enabled {
+		b, err := newAWSBackend(&awsBackendConfig{
+			defaultTTL:  fc.AWS.DefaultTTL,
+			path:        fc.AWS.Path,
+			rules:       fc.AWS.Rules,
+			vaultClient: vaultClient,
+		})
+		if err != nil {
+			return nil, err
+		}
+		backends = append(backends, b)
 	}
-	ab := &backendReconciler{
-		backend:               a,
-		kubernetesAuthBackend: fc.KubernetesAuthBackend,
-		kubeClient:            mgr.GetClient(),
-		log:                   log.WithName("aws"),
-		prefix:                fc.Prefix,
-		vaultClient:           vaultClient,
-		vaultConfig:           vaultConfig,
+
+	if fc.GCP.Enabled {
+		b, err := newGCPBackend(&gcpBackendConfig{
+			path:        fc.GCP.Path,
+			rules:       fc.GCP.Rules,
+			vaultClient: vaultClient,
+		})
+		if err != nil {
+			return nil, err
+		}
+		backends = append(backends, b)
 	}
-	if err := ab.SetupWithManager(mgr); err != nil {
-		return nil, err
+
+	if len(backends) == 0 {
+		return nil, fmt.Errorf("at least one backend must be enabled in the configuration file")
+	}
+
+	for _, b := range backends {
+		r := &backendReconciler{
+			backend:               b,
+			kubernetesAuthBackend: fc.KubernetesAuthBackend,
+			kubeClient:            mgr.GetClient(),
+			log:                   log.WithName(b.String()),
+			prefix:                fc.Prefix,
+			vaultClient:           vaultClient,
+			vaultConfig:           vaultConfig,
+		}
+		if err := r.SetupWithManager(mgr); err != nil {
+			return nil, err
+		}
 	}
 
 	return &Operator{mgr: mgr}, nil

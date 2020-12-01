@@ -18,17 +18,20 @@ It's comprised of two parts:
 
 - A Vault server with:
   - Kubernetes auth method, enabled and configured
-  - AWS secrets engine, enabled and configured
+  - One of, or both:
+    - AWS secrets engine, enabled and configured
+    - GCP secrets engine, enabled and configured
 
 ### Usage
 
 Refer to the [example](manifests/operator/) for a reference Kubernetes deployment.
 
 Annotate your service accounts and the operator will create the corresponding
-login role and aws secret role in Vault at
-`auth/kubernetes/roles/<prefix>_aws_<namespace>_<name>` and
-`aws/role/<prefix>_aws_<namespace>_<name>` respectively, where `<prefix>` is the
-`prefix` provided in the configuration file (default: `vkcc`)
+login role and a role under the corresponding secret backend.
+
+#### AWS
+
+Associate a service account with an AWS IAM role.
 
 ```
 apiVersion: v1
@@ -36,15 +39,35 @@ kind: ServiceAccount
 metadata:
   name: foobar
   annotations:
-    uw.systems/aws-role: "arn:aws:iam::000000000000:role/some-role-name"
+    vault.uw.systems/aws-role: "arn:aws:iam::000000000000:role/some-role-name"
+```
+
+#### GCP
+
+Attach roleset bindings to a service account in a particular project. Refer to
+the [Vault docs] (https://www.vaultproject.io/docs/secrets/gcp#roleset-bindings)
+for examples of valid bindings.
+
+```
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: foobar
+  annotations:
+    vault.uw.systems/gcp-project: "my-project"
+    vault.uw.systems/gcp-bindings: |
+      "//cloudresourcemanager.googleapis.com/projects/my-project":
+        - "roles/dns.admin"
+        - "roles/storage.admin"
 ```
 
 ### Config file
 
-The operator can be configured by a yaml file passed to the operator with the
+The operator is configured by a yaml file passed to the operator with the
 flag `-config-file`.
 
-If no file is provided then the defaults are used:
+Any omitted fields will inherit from the defaults below. At least one backend
+(`aws`, `gcp`) must be enabled.
 
 ```
 # The mount path of the kubernetes auth backend
@@ -58,24 +81,34 @@ prefix: "vkcc"
 
 # Configuration for the AWS secret backend
 aws:
-  # The default TTL of credentials issued for a role
+  # Enable the AWS backend
+  enabled: false
+
+  # The default TTL of the credentials issued for a role
   defaultTTL: 15m
 
   # The mount path of the AWS secret backend
-  path: aws
+  path: "aws"
 
   # Rules that govern which service accounts can assume which roles
   rules: []
+
+# Configuration for the GCP secret backend
+gcp:
+  # Enable the GCP backend
+  enabled: false
+
+  # The mount path of the GCP secret backend
+  path: "gcp"
+
+  # Rules that govern which service accounts can create bindings in which
+  # projects
+  rules: []
 ```
 
-Omitted fields also receive the default values.
+#### AWS Rules
 
-#### Rules
-
-You can control which service accounts can assume which roles based on their
-namespace by setting rules under `aws.rules`.
-
-For example, the following configuration allows service accounts in `kube-system`
+The following configuration allows service accounts in `kube-system`
 and namespaces prefixed with `system-` to assume roles under the `sysadmin/*` path,
 roles that begin with `sysadmin-` or a specific `org/s3-admin` role in the accounts
 `000000000000` and `111111111111`.
@@ -97,6 +130,26 @@ aws:
 
 If `accountIDs` is omitted or empty then any account is permitted. The other two
 parameters are required.
+
+The pattern matching supports [shell file name
+patterns](https://golang.org/pkg/path/filepath/#Match).
+
+#### GCP Rules
+
+The following configuration allows service accounts in `kube-system` and
+namespaces prefixed with `system-` to create bindings in the project
+`my-project`.
+
+```
+gcp:
+  rules:
+    - namespacePatterns:
+        - kube-system
+        - system-*
+      projects:
+        - my-project
+```
+
 
 The pattern matching supports [shell file name
 patterns](https://golang.org/pkg/path/filepath/#Match).
