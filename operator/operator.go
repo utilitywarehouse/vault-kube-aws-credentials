@@ -49,16 +49,12 @@ func New(cfg string) (*Operator, error) {
 		os.Exit(1)
 	}
 
-	ao, err := NewAWSOperator(&AWSOperatorConfig{
-		DefaultTTL: fc.AWS.DefaultTTL,
-		Path:       fc.AWS.Path,
-		Rules:      fc.AWS.Rules,
-	})
+	a, err := newAWSBackend(&fc.AWS)
 	if err != nil {
 		return nil, err
 	}
 	ab := &backendReconciler{
-		backend:               ao,
+		backend:               a,
 		kubernetesAuthBackend: fc.KubernetesAuthBackend,
 		kubeClient:            mgr.GetClient(),
 		log:                   log.WithName("aws"),
