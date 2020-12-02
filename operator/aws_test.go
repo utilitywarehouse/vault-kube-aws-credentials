@@ -45,17 +45,21 @@ func TestAWSOperatorReconcile(t *testing.T) {
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
-	a, err := NewAWSOperator(&AWSOperatorConfig{
-		DefaultTTL:            3600 * time.Second,
-		KubeClient:            fakeKubeClient,
-		KubernetesAuthBackend: "kubernetes",
-		Prefix:                "vkcc",
-		VaultClient:           core.Client,
-		VaultConfig:           vaultapi.DefaultConfig(),
-		Path:                  "aws",
+	ao, err := NewAWSOperator(&AWSOperatorConfig{
+		DefaultTTL: 3600 * time.Second,
+		Path:       "aws",
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	a := &backendReconciler{
+		backend:               ao,
+		kubeClient:            fakeKubeClient,
+		kubernetesAuthBackend: "kubernetes",
+		log:                   ctrl.Log.WithName("operator").WithName("aws"),
+		prefix:                "vkcc",
+		vaultClient:           core.Client,
+		vaultConfig:           vaultapi.DefaultConfig(),
 	}
 
 	// CREATE: test that Reconcile creates the vault objects for a new SA
@@ -89,7 +93,7 @@ func TestAWSOperatorReconcile(t *testing.T) {
 
 	// UPDATE: test that Reconcile updates the role when the annotation
 	// changes
-	a.KubeClient = fake.NewFakeClientWithScheme(scheme, &corev1.ServiceAccount{
+	a.kubeClient = fake.NewFakeClientWithScheme(scheme, &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "foo",
 			Namespace: "bar",
@@ -115,7 +119,7 @@ func TestAWSOperatorReconcile(t *testing.T) {
 
 	// REMOVE: finally, test that removing the annotation deletes the objects in
 	// vault
-	a.KubeClient = fake.NewFakeClientWithScheme(scheme, &corev1.ServiceAccount{
+	a.kubeClient = fake.NewFakeClientWithScheme(scheme, &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "foo",
 			Namespace: "bar",
@@ -160,31 +164,35 @@ func TestOperatorReconcileDelete(t *testing.T) {
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
-	a, err := NewAWSOperator(&AWSOperatorConfig{
-		KubeClient:            fakeKubeClient,
-		KubernetesAuthBackend: "kubernetes",
-		Prefix:                "vkcc",
-		VaultClient:           core.Client,
-		VaultConfig:           vaultapi.DefaultConfig(),
-		Path:                  "aws",
+	ao, err := NewAWSOperator(&AWSOperatorConfig{
+		Path: "aws",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	a := &backendReconciler{
+		backend:               ao,
+		kubeClient:            fakeKubeClient,
+		kubernetesAuthBackend: "kubernetes",
+		log:                   ctrl.Log.WithName("operator").WithName("aws"),
+		prefix:                "vkcc",
+		vaultClient:           core.Client,
+		vaultConfig:           vaultapi.DefaultConfig(),
+	}
 
 	// Create a policy
-	policy, err := a.renderAWSPolicyTemplate("vkcc_aws_bar_foo")
+	policy, err := a.backend.renderPolicy("vkcc_aws_bar_foo")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.VaultClient.Logical().Write("sys/policy/vkcc_bar_foo", map[string]interface{}{
+	if _, err := a.vaultClient.Logical().Write("sys/policy/vkcc_bar_foo", map[string]interface{}{
 		"policy": policy,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	// Create kubernetes auth backend role
-	if _, err := a.VaultClient.Logical().Write("auth/kubernetes/role/vkcc_aws_bar_foo", map[string]interface{}{
+	if _, err := a.vaultClient.Logical().Write("auth/kubernetes/role/vkcc_aws_bar_foo", map[string]interface{}{
 		"bound_service_account_names":      []string{"foo"},
 		"bound_service_account_namespaces": []string{"bar"},
 		"policies":                         []string{"default", "vkcc_aws_bar_foo"},
@@ -194,7 +202,7 @@ func TestOperatorReconcileDelete(t *testing.T) {
 	}
 
 	// Create aws secret backend role
-	if _, err := a.VaultClient.Logical().Write("aws/roles/vkcc_aws_bar_foo", map[string]interface{}{
+	if _, err := a.vaultClient.Logical().Write("aws/roles/vkcc_aws_bar_foo", map[string]interface{}{
 		"default_sts_ttl": 900,
 		"role_arns":       []string{"arn:aws:iam::111111111111:role/foobar-role"},
 		"credential_type": "assumed_role",
@@ -250,13 +258,8 @@ func TestOperatorReconcileBlocked(t *testing.T) {
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
-	a, err := NewAWSOperator(&AWSOperatorConfig{
-		KubeClient:            fakeKubeClient,
-		KubernetesAuthBackend: "kubernetes",
-		Prefix:                "vkcc",
-		VaultClient:           core.Client,
-		VaultConfig:           vaultapi.DefaultConfig(),
-		Path:                  "aws",
+	ao, err := NewAWSOperator(&AWSOperatorConfig{
+		Path: "aws",
 		Rules: AWSRules{
 			AWSRule{
 				NamespacePatterns: []string{
@@ -270,6 +273,15 @@ func TestOperatorReconcileBlocked(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	a := &backendReconciler{
+		backend:               ao,
+		kubeClient:            fakeKubeClient,
+		kubernetesAuthBackend: "kubernetes",
+		log:                   ctrl.Log.WithName("operator").WithName("aws"),
+		prefix:                "vkcc",
+		vaultClient:           core.Client,
+		vaultConfig:           vaultapi.DefaultConfig(),
 	}
 
 	// This shouldn't create the objects in vault
@@ -310,16 +322,20 @@ func TestAWSOperatorStart(t *testing.T) {
 
 	core := fakeVaultCluster.Cores[0]
 
-	a, err := NewAWSOperator(&AWSOperatorConfig{
-		KubeClient:            fakeKubeClient,
-		KubernetesAuthBackend: "kubernetes",
-		Prefix:                "vkcc",
-		VaultClient:           core.Client,
-		VaultConfig:           vaultapi.DefaultConfig(),
-		Path:                  "aws",
+	ao, err := NewAWSOperator(&AWSOperatorConfig{
+		Path: "aws",
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	a := &backendReconciler{
+		backend:               ao,
+		kubeClient:            fakeKubeClient,
+		kubernetesAuthBackend: "kubernetes",
+		log:                   ctrl.Log.WithName("operator").WithName("aws"),
+		prefix:                "vkcc",
+		vaultClient:           core.Client,
+		vaultConfig:           vaultapi.DefaultConfig(),
 	}
 
 	stopc := make(<-chan struct{})
@@ -329,7 +345,7 @@ func TestAWSOperatorStart(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Create policies
-	policy, err := a.renderAWSPolicyTemplate("vkcc_aws_bar_foo")
+	policy, err := a.backend.renderPolicy("vkcc_aws_bar_foo")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +354,7 @@ func TestAWSOperatorStart(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	policyGC, err := a.renderAWSPolicyTemplate("vkcc_aws_bar_gc")
+	policyGC, err := a.backend.renderPolicy("vkcc_aws_bar_gc")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +400,7 @@ func TestAWSOperatorStart(t *testing.T) {
 
 	// Add a service account for only one of the keys that have been written
 	// to vault
-	a.KubeClient = fake.NewFakeClientWithScheme(scheme, &corev1.ServiceAccount{
+	a.kubeClient = fake.NewFakeClientWithScheme(scheme, &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "foo",
 			Namespace: "bar",
@@ -441,17 +457,17 @@ func TestAWSOperatorAdmitEvent(t *testing.T) {
 	}
 
 	// Test that without any rules any valid event is admitted
-	assert.True(t, o.admitEvent("foobar", "arn:aws:iam::111111111111:role/foobar-role"))
+	assert.True(t, o.admitEvent("foobar", "", map[string]string{awsRoleAnnotation: "arn:aws:iam::111111111111:role/foobar-role"}))
 
 	// Test that an empty role is not admitted
-	assert.False(t, o.admitEvent("foobar", ""))
+	assert.False(t, o.admitEvent("foobar", "", map[string]string{awsRoleAnnotation: ""}))
 
 	// Test that an invalid role is not admitted
-	assert.False(t, o.admitEvent("foobar", "foobar"))
+	assert.False(t, o.admitEvent("foobar", "", map[string]string{awsRoleAnnotation: "foobar"}))
 
 	// Test that a malformed arn is not admitted (missing a second : after
 	// iam)
-	assert.False(t, o.admitEvent("foobar", "arn:aws:iam:111111111111:role/foobar-role"))
+	assert.False(t, o.admitEvent("foobar", "", map[string]string{awsRoleAnnotation: "arn:aws:iam:111111111111:role/foobar-role"}))
 
 	o.Rules = AWSRules{
 		AWSRule{
@@ -491,41 +507,41 @@ func TestAWSOperatorAdmitEvent(t *testing.T) {
 	}
 
 	// Test bar-* : foobar-* is allowed
-	assert.True(t, o.admitEvent("bar-foo", "arn:aws:iam::111111111111:role/foobar-role"))
+	assert.True(t, o.admitEvent("bar-foo", "", map[string]string{awsRoleAnnotation: "arn:aws:iam::111111111111:role/foobar-role"}))
 
 	// Test that foo : barfoo/* is allowed
-	assert.True(t, o.admitEvent("foo", "arn:aws:iam::111111111111:role/barfoo/role"))
+	assert.True(t, o.admitEvent("foo", "", map[string]string{awsRoleAnnotation: "arn:aws:iam::111111111111:role/barfoo/role"}))
 
 	// Test that another account ID from the list is matched
-	assert.True(t, o.admitEvent("foo", "arn:aws:iam::000000000000:role/barfoo/role"))
+	assert.True(t, o.admitEvent("foo", "", map[string]string{awsRoleAnnotation: "arn:aws:iam::000000000000:role/barfoo/role"}))
 
 	// Test the second rule is evaluated
-	assert.True(t, o.admitEvent("kube-system", "arn:aws:iam::000000000000:role/organisation"))
+	assert.True(t, o.admitEvent("kube-system", "", map[string]string{awsRoleAnnotation: "arn:aws:iam::000000000000:role/organisation"}))
 
 	// Test the second rule is evaluated
-	assert.True(t, o.admitEvent("kube-system", "arn:aws:iam::000000000000:role/org-admins/test-subdivision/foobar"))
+	assert.True(t, o.admitEvent("kube-system", "", map[string]string{awsRoleAnnotation: "arn:aws:iam::000000000000:role/org-admins/test-subdivision/foobar"}))
 
 	// Test the ? match
-	assert.True(t, o.admitEvent("kube-system", "arn:aws:iam::000000000000:role/system"))
+	assert.True(t, o.admitEvent("kube-system", "", map[string]string{awsRoleAnnotation: "arn:aws:iam::000000000000:role/system"}))
 
 	// Test that foo : barfoo is not allowed
-	assert.False(t, o.admitEvent("foo", "arn:aws:iam::111111111111:role/barfoo"))
+	assert.False(t, o.admitEvent("foo", "", map[string]string{awsRoleAnnotation: "arn:aws:iam::111111111111:role/barfoo"}))
 
 	// Test that the matching doesn't match the namespace foo to foobar as a
 	// substring
-	assert.False(t, o.admitEvent("foobar", "arn:aws:iam::111111111111:role/foobar-role"))
+	assert.False(t, o.admitEvent("foobar", "", map[string]string{awsRoleAnnotation: "arn:aws:iam::111111111111:role/foobar-role"}))
 
 	// Test that an account ID outside of the list is not allowed
-	assert.False(t, o.admitEvent("foo", "arn:aws:iam::222222222222:role/barfoo/role"))
+	assert.False(t, o.admitEvent("foo", "", map[string]string{awsRoleAnnotation: "arn:aws:iam::222222222222:role/barfoo/role"}))
 
 	// Test that the rules don't mix
-	assert.False(t, o.admitEvent("foo", "arn:aws:iam::000000000000:role/organisation"))
+	assert.False(t, o.admitEvent("foo", "", map[string]string{awsRoleAnnotation: "arn:aws:iam::000000000000:role/organisation"}))
 
 	// Test that a rule without a namespace pattern does not admit
-	assert.False(t, o.admitEvent("foo", "arn:aws:iam::000000000000:role/fuubar-role"))
+	assert.False(t, o.admitEvent("foo", "", map[string]string{awsRoleAnnotation: "arn:aws:iam::000000000000:role/fuubar-role"}))
 
 	// Test that a rule without a role pattern does not admit
-	assert.False(t, o.admitEvent("fuubar", "arn:aws:iam::000000000000:role/fuubar-role"))
+	assert.False(t, o.admitEvent("fuubar", "", map[string]string{awsRoleAnnotation: "arn:aws:iam::000000000000:role/fuubar-role"}))
 }
 
 // fakeVaultCluster creates a mock vault cluster with the kubernetes credential
