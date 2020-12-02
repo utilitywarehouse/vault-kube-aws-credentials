@@ -29,6 +29,90 @@ path "{{ .Path }}/sts/{{ .Name }}" {
 }
 `
 
+// awsBackend provides methods that allow service accounts to be reconciled
+// against the AWS secret backend in Vault
+type awsBackend struct {
+	defaultTTL time.Duration
+	path       string
+	rules      AWSRules
+	log        logr.Logger
+	tmpl       *template.Template
+}
+
+// newAWSBackend returns a new configured awsBackend
+func newAWSBackend(config *awsFileConfig) (*awsBackend, error) {
+	if config.Path == "" {
+		return nil, fmt.Errorf("path can't be empty")
+	}
+
+	tmpl, err := template.New("policy").Parse(awsPolicyTemplate)
+	if err != nil {
+		return nil, err
+	}
+
+	return &awsBackend{
+		defaultTTL: config.DefaultTTL,
+		path:       config.Path,
+		rules:      config.Rules,
+		log:        log.WithName("aws"),
+		tmpl:       tmpl,
+	}, nil
+}
+
+// String returns the 'name' of this secret backend
+func (b *awsBackend) String() string {
+	return "aws"
+}
+
+// admitEvent controls whether an event should be reconciled or not based on the
+// presence of a role arn and whether the role arn is permitted for this
+// namespace by the rules laid out in the config file
+func (b *awsBackend) admitEvent(namespace, name string, annotations map[string]string) bool {
+	roleArn := annotations[awsRoleAnnotation]
+	if roleArn != "" {
+		allowed, err := b.rules.allow(namespace, roleArn)
+		if err != nil {
+			b.log.Error(err, "error matching role arn against rules for namespace", "role_arn", roleArn, "namespace", namespace)
+		} else if allowed {
+			return true
+		}
+	}
+
+	return false
+}
+
+// renderPolicy injects the provided name into a policy allowing access
+// to the corresponding AWS secret role
+func (b *awsBackend) renderPolicy(name string) (string, error) {
+	var policy bytes.Buffer
+	if err := b.tmpl.Execute(&policy, struct {
+		Path string
+		Name string
+	}{
+		Path: b.path,
+		Name: name,
+	}); err != nil {
+		return "", err
+	}
+
+	return policy.String(), nil
+}
+
+// roleData returns the data defined in the given annotations
+func (b *awsBackend) roleData(annotations map[string]string) map[string]interface{} {
+	return map[string]interface{}{
+		"default_sts_ttl": int(b.defaultTTL.Seconds()),
+		"role_arns":       []string{annotations[awsRoleAnnotation]},
+		"credential_type": "assumed_role",
+	}
+}
+
+// rolePath returns the path under which secret roles should be written for the
+// AWS secret backend
+func (b *awsBackend) rolePath() string {
+	return b.path + "/roles"
+}
+
 // AWSRules are a collection of rules.
 type AWSRules []AWSRule
 
@@ -123,88 +207,4 @@ func (ar *AWSRule) matchesRoleName(roleName string) (bool, error) {
 	}
 
 	return false, nil
-}
-
-// awsBackend provides methods that allow service accounts to be reconciled
-// against the AWS secret backend in Vault
-type awsBackend struct {
-	defaultTTL time.Duration
-	path       string
-	rules      AWSRules
-	log        logr.Logger
-	tmpl       *template.Template
-}
-
-// newAWSBackend returns a new configured awsBackend
-func newAWSBackend(config *awsFileConfig) (*awsBackend, error) {
-	if config.Path == "" {
-		return nil, fmt.Errorf("path can't be empty")
-	}
-
-	tmpl, err := template.New("policy").Parse(awsPolicyTemplate)
-	if err != nil {
-		return nil, err
-	}
-
-	return &awsBackend{
-		defaultTTL: config.DefaultTTL,
-		path:       config.Path,
-		rules:      config.Rules,
-		log:        log.WithName("aws"),
-		tmpl:       tmpl,
-	}, nil
-}
-
-// String returns the 'name' of this secret backend
-func (b *awsBackend) String() string {
-	return "aws"
-}
-
-// admitEvent controls whether an event should be reconciled or not based on the
-// presence of a role arn and whether the role arn is permitted for this
-// namespace by the rules laid out in the config file
-func (b *awsBackend) admitEvent(namespace, name string, annotations map[string]string) bool {
-	roleArn := annotations[awsRoleAnnotation]
-	if roleArn != "" {
-		allowed, err := b.rules.allow(namespace, roleArn)
-		if err != nil {
-			b.log.Error(err, "error matching role arn against rules for namespace", "role_arn", roleArn, "namespace", namespace)
-		} else if allowed {
-			return true
-		}
-	}
-
-	return false
-}
-
-// renderPolicy injects the provided name into a policy allowing access
-// to the corresponding AWS secret role
-func (b *awsBackend) renderPolicy(name string) (string, error) {
-	var policy bytes.Buffer
-	if err := b.tmpl.Execute(&policy, struct {
-		Path string
-		Name string
-	}{
-		Path: b.path,
-		Name: name,
-	}); err != nil {
-		return "", err
-	}
-
-	return policy.String(), nil
-}
-
-// roleData returns the data defined in the given annotations
-func (b *awsBackend) roleData(annotations map[string]string) map[string]interface{} {
-	return map[string]interface{}{
-		"default_sts_ttl": int(b.defaultTTL.Seconds()),
-		"role_arns":       []string{annotations[awsRoleAnnotation]},
-		"credential_type": "assumed_role",
-	}
-}
-
-// rolePath returns the path under which secret roles should be written for the
-// AWS secret backend
-func (b *awsBackend) rolePath() string {
-	return b.path + "/roles"
 }
