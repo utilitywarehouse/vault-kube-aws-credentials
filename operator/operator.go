@@ -50,19 +50,23 @@ func New(cfg string) (*Operator, error) {
 	}
 
 	ao, err := NewAWSOperator(&AWSOperatorConfig{
-		DefaultTTL:            fc.AWS.DefaultTTL,
-		KubeClient:            mgr.GetClient(),
-		KubernetesAuthBackend: fc.KubernetesAuthBackend,
-		Path:                  fc.AWS.Path,
-		Prefix:                fc.Prefix,
-		Rules:                 fc.AWS.Rules,
-		VaultClient:           vaultClient,
-		VaultConfig:           vaultConfig,
+		DefaultTTL: fc.AWS.DefaultTTL,
+		Path:       fc.AWS.Path,
+		Rules:      fc.AWS.Rules,
 	})
 	if err != nil {
 		return nil, err
 	}
-	if err := ao.SetupWithManager(mgr); err != nil {
+	ab := &backendReconciler{
+		backend:               ao,
+		kubernetesAuthBackend: fc.KubernetesAuthBackend,
+		kubeClient:            mgr.GetClient(),
+		log:                   log.WithName("aws"),
+		prefix:                fc.Prefix,
+		vaultClient:           vaultClient,
+		vaultConfig:           vaultConfig,
+	}
+	if err := ab.SetupWithManager(mgr); err != nil {
 		return nil, err
 	}
 
