@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"fmt"
 	"os"
 
 	vault "github.com/hashicorp/vault/api"
@@ -49,32 +50,56 @@ func New(cfg string) (*Operator, error) {
 		os.Exit(1)
 	}
 
-	a, err := newAWSBackend(&awsBackendConfig{
-		defaultTTL:  fc.AWS.DefaultTTL,
-		path:        fc.AWS.Path,
-		rules:       fc.AWS.Rules,
-		vaultClient: vaultClient,
-	})
-	if err != nil {
-		return nil, err
+	var backends []secretBackend
+
+	if fc.AWS.Enabled {
+		b, err := newAWSBackend(&awsBackendConfig{
+			defaultTTL:  fc.AWS.DefaultTTL,
+			path:        fc.AWS.Path,
+			rules:       fc.AWS.Rules,
+			vaultClient: vaultClient,
+		})
+		if err != nil {
+			return nil, err
+		}
+		backends = append(backends, b)
 	}
-	ab := &backendReconciler{
-		backend:               a,
-		kubernetesAuthBackend: fc.KubernetesAuthBackend,
-		kubeClient:            mgr.GetClient(),
-		log:                   log.WithName("aws"),
-		prefix:                fc.Prefix,
-		vaultClient:           vaultClient,
-		vaultConfig:           vaultConfig,
+
+	if fc.GCP.Enabled {
+		b, err := newGCPBackend(&gcpBackendConfig{
+			path:        fc.GCP.Path,
+			rules:       fc.GCP.Rules,
+			vaultClient: vaultClient,
+		})
+		if err != nil {
+			return nil, err
+		}
+		backends = append(backends, b)
 	}
-	if err := ab.SetupWithManager(mgr); err != nil {
-		return nil, err
+
+	if len(backends) == 0 {
+		return nil, fmt.Errorf("at least one backend must be enabled in the configuration file")
+	}
+
+	for _, b := range backends {
+		r := &backendReconciler{
+			backend:               b,
+			kubernetesAuthBackend: fc.KubernetesAuthBackend,
+			kubeClient:            mgr.GetClient(),
+			log:                   log.WithName(b.String()),
+			prefix:                fc.Prefix,
+			vaultClient:           vaultClient,
+			vaultConfig:           vaultConfig,
+		}
+		if err := r.SetupWithManager(mgr); err != nil {
+			return nil, err
+		}
 	}
 
 	return &Operator{mgr: mgr}, nil
 }
 
-// Starts runs the operator
+// Start runs the operator
 func (o *Operator) Start() error {
 	return o.mgr.Start(ctrl.SetupSignalHandler())
 }
