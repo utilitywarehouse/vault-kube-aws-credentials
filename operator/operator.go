@@ -49,7 +49,12 @@ func New(cfg string) (*Operator, error) {
 		os.Exit(1)
 	}
 
-	a, err := newAWSBackend(&fc.AWS)
+	a, err := newAWSBackend(&awsBackendConfig{
+		defaultTTL:  fc.AWS.DefaultTTL,
+		path:        fc.AWS.Path,
+		rules:       fc.AWS.Rules,
+		vaultClient: vaultClient,
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -45,9 +45,10 @@ func TestAWSOperatorReconcile(t *testing.T) {
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
-	ab, err := newAWSBackend(&awsFileConfig{
-		DefaultTTL: 3600 * time.Second,
-		Path:       "aws",
+	ab, err := newAWSBackend(&awsBackendConfig{
+		defaultTTL:  3600 * time.Second,
+		path:        "aws",
+		vaultClient: core.Client,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -164,8 +165,9 @@ func TestOperatorReconcileDelete(t *testing.T) {
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
-	ab, err := newAWSBackend(&awsFileConfig{
-		Path: "aws",
+	ab, err := newAWSBackend(&awsBackendConfig{
+		path:        "aws",
+		vaultClient: core.Client,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -257,9 +259,9 @@ func TestOperatorReconcileBlocked(t *testing.T) {
 	core := fakeVaultCluster.Cores[0]
 
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
-	ab, err := newAWSBackend(&awsFileConfig{
-		Path: "aws",
-		Rules: AWSRules{
+	ab, err := newAWSBackend(&awsBackendConfig{
+		path: "aws",
+		rules: AWSRules{
 			AWSRule{
 				NamespacePatterns: []string{
 					"notbar",
@@ -269,6 +271,7 @@ func TestOperatorReconcileBlocked(t *testing.T) {
 				},
 			},
 		},
+		vaultClient: core.Client,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -321,8 +324,9 @@ func TestAWSOperatorStart(t *testing.T) {
 
 	core := fakeVaultCluster.Cores[0]
 
-	ab, err := newAWSBackend(&awsFileConfig{
-		Path: "aws",
+	ab, err := newAWSBackend(&awsBackendConfig{
+		path:        "aws",
+		vaultClient: core.Client,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -451,7 +455,8 @@ func TestAWSOperatorAdmitEvent(t *testing.T) {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	ab := &awsBackend{
-		log: ctrl.Log.WithName("operator").WithName("aws"),
+		awsBackendConfig: &awsBackendConfig{},
+		log:              ctrl.Log.WithName("operator").WithName("aws"),
 	}
 
 	// Test that without any rules any valid event is admitted

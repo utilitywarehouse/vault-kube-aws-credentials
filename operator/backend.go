@@ -20,9 +20,10 @@ type secretBackend interface {
 	String() string
 
 	admitEvent(string, string, map[string]string) bool
+	deleteRole(string) error
+	listRoles() ([]interface{}, error)
 	renderPolicy(string) (string, error)
-	roleData(map[string]string) map[string]interface{}
-	rolePath() string
+	writeRole(string, map[string]string) error
 }
 
 // backendReconciler creates objects in Vault that allow service accounts to
@@ -43,17 +44,12 @@ func (r *backendReconciler) Start(stop <-chan struct{}) error {
 	r.log.Info("garbage collection started")
 
 	// Secret backend roles
-	awsRoleList, err := r.vaultClient.Logical().List(r.backend.rolePath())
+	roleList, err := r.backend.listRoles()
 	if err != nil {
 		return err
 	}
-	if awsRoleList != nil {
-		if keys, ok := awsRoleList.Data["keys"].([]interface{}); ok {
-			err = r.garbageCollect(keys)
-			if err != nil {
-				return err
-			}
-		}
+	if err := r.garbageCollect(roleList); err != nil {
+		return err
 	}
 
 	// Kubernetes auth roles
@@ -116,7 +112,7 @@ func (r *backendReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return ctrl.Result{}, r.removeFromVault(req.Namespace, req.Name)
 	}
 
-	return ctrl.Result{}, r.writeToVault(req.Namespace, req.Name, r.backend.roleData(serviceAccount.Annotations))
+	return ctrl.Result{}, r.writeToVault(req.Namespace, req.Name, serviceAccount.Annotations)
 }
 
 func (r *backendReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -165,7 +161,7 @@ func (r *backendReconciler) parseKey(key string) (string, string, bool) {
 
 // writeToVault creates the kubernetes auth role and secret backend role required
 // for the given serviceaccount to login and retrieve credentials
-func (r *backendReconciler) writeToVault(namespace, name string, data map[string]interface{}) error {
+func (r *backendReconciler) writeToVault(namespace, name string, annotations map[string]string) error {
 	key := r.makeKey(namespace, name)
 
 	// Create policy for kubernetes auth role
@@ -191,8 +187,8 @@ func (r *backendReconciler) writeToVault(namespace, name string, data map[string
 	}
 	r.log.Info("Wrote kubernetes auth backend role", "namespace", namespace, "serviceaccount", name, "key", key)
 
-	// Create backend role
-	if _, err := r.vaultClient.Logical().Write(r.backend.rolePath()+"/"+key, data); err != nil {
+	// Create the backend role
+	if err := r.backend.writeRole(key, annotations); err != nil {
 		return err
 	}
 	r.log.Info("Wrote backend role", "namespace", namespace, "serviceaccount", name, "key", key)
@@ -204,21 +200,17 @@ func (r *backendReconciler) writeToVault(namespace, name string, data map[string
 func (r *backendReconciler) removeFromVault(namespace, name string) error {
 	key := r.makeKey(namespace, name)
 
-	_, err := r.vaultClient.Logical().Delete(r.backend.rolePath() + "/" + key)
-	if err != nil {
+	if err := r.backend.deleteRole(key); err != nil {
 		return err
 	}
 	r.log.Info("Deleted backend role", "namespace", namespace, "serviceaccount", name, "key", key)
 
-	_, err = r.vaultClient.Logical().Delete("auth/" + r.kubernetesAuthBackend + "/role/" + key)
-
-	if err != nil {
+	if _, err := r.vaultClient.Logical().Delete("auth/" + r.kubernetesAuthBackend + "/role/" + key); err != nil {
 		return err
 	}
 	r.log.Info("Deleted Kubernetes auth role", "namespace", namespace, "serviceaccount", name, "key", key)
 
-	_, err = r.vaultClient.Logical().Delete("sys/policy/" + key)
-	if err != nil {
+	if _, err := r.vaultClient.Logical().Delete("sys/policy/" + key); err != nil {
 		return err
 	}
 	r.log.Info("Deleted policy", "namespace", namespace, "serviceaccount", name, "key", key)
