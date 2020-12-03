@@ -68,9 +68,9 @@ func (b *gcpBackend) String() string {
 	return "gcp"
 }
 
-// admitEvent controls whether an event should be reconciled or not based on the
-// presence of a role arn and whether the role arn is permitted for this
-// namespace by the rules laid out in the config file
+// admitEvent controls whether an event should be reconciled or not based on
+// whether the annotations contain the required annotations and the namespace is
+// permitted to create bindings in the specified project
 func (b *gcpBackend) admitEvent(namespace, name string, annotations map[string]string) bool {
 	project := annotations[gcpProjectAnnotation]
 	bindings := annotations[gcpBindingsAnnotation]
