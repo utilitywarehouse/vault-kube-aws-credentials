@@ -31,7 +31,7 @@ type fileConfig struct {
 type awsFileConfig struct {
 	DefaultTTL time.Duration `yaml:"defaultTTL"`
 	Path       string        `yaml:"path"`
-	Rules      AWSRules      `yaml:"rules"`
+	Rules      awsRules      `yaml:"rules"`
 }
 
 func loadConfigFromFile(file string) (*fileConfig, error) {

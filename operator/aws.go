@@ -34,7 +34,7 @@ path "{{ .Path }}/sts/{{ .Name }}" {
 type awsBackendConfig struct {
 	defaultTTL  time.Duration
 	path        string
-	rules       AWSRules
+	rules       awsRules
 	vaultClient *vault.Client
 }
 
@@ -140,14 +140,14 @@ func (b *awsBackend) writeRole(key string, annotations map[string]string) error 
 	return nil
 }
 
-// AWSRules are a collection of rules.
-type AWSRules []AWSRule
+// awsRules are a collection of rules.
+type awsRules []awsRule
 
 // allow returns true if there is a rule in the list of rules which allows
 // a service account in the given namespace to assume the given role. Rules are
 // evaluated in order and allow returns true for the first matching rule in the
 // list
-func (ar AWSRules) allow(namespace, roleArn string) (bool, error) {
+func (ar awsRules) allow(namespace, roleArn string) (bool, error) {
 	a, err := arn.Parse(roleArn)
 	if err != nil {
 		return false, err
@@ -166,16 +166,16 @@ func (ar AWSRules) allow(namespace, roleArn string) (bool, error) {
 	return len(ar) == 0, nil
 }
 
-// AWSRule restricts the arns that a service account can assume based on
+// awsRule restricts the arns that a service account can assume based on
 // patterns which match its namespace to an arn or arns
-type AWSRule struct {
+type awsRule struct {
 	NamespacePatterns []string `yaml:"namespacePatterns"`
 	RoleNamePatterns  []string `yaml:"roleNamePatterns"`
 	AccountIDs        []string `yaml:"accountIDs"`
 }
 
 // allows checks whether this rule allows a namespace to assume the given role_arn
-func (ar *AWSRule) allows(namespace string, roleArn arn.ARN) (bool, error) {
+func (ar *awsRule) allows(namespace string, roleArn arn.ARN) (bool, error) {
 	accountIDAllowed := ar.matchesAccountID(roleArn.AccountID)
 
 	namespaceAllowed, err := ar.matchesNamespace(namespace)
@@ -196,7 +196,7 @@ func (ar *AWSRule) allows(namespace string, roleArn arn.ARN) (bool, error) {
 
 // matchesAccountID returns true if the rule allows an accountID, or if it
 // doesn't contain an accountID at all
-func (ar *AWSRule) matchesAccountID(accountID string) bool {
+func (ar *awsRule) matchesAccountID(accountID string) bool {
 	for _, id := range ar.AccountIDs {
 		if id == accountID {
 			return true
@@ -207,7 +207,7 @@ func (ar *AWSRule) matchesAccountID(accountID string) bool {
 }
 
 // matchesNamespace returns true if the rule allows the given namespace
-func (ar *AWSRule) matchesNamespace(namespace string) (bool, error) {
+func (ar *awsRule) matchesNamespace(namespace string) (bool, error) {
 	for _, np := range ar.NamespacePatterns {
 		match, err := filepath.Match(np, namespace)
 		if err != nil {
@@ -222,7 +222,7 @@ func (ar *AWSRule) matchesNamespace(namespace string) (bool, error) {
 }
 
 // matchesRoleName returns true if the rule allows the given role name
-func (ar *AWSRule) matchesRoleName(roleName string) (bool, error) {
+func (ar *awsRule) matchesRoleName(roleName string) (bool, error) {
 	for _, rp := range ar.RoleNamePatterns {
 		match, err := filepath.Match(rp, roleName)
 		if err != nil {
