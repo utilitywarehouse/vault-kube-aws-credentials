@@ -2,7 +2,6 @@ package operator
 
 import (
 	"fmt"
-	"os"
 
 	vault "github.com/hashicorp/vault/api"
 	corev1 "k8s.io/api/core/v1"
@@ -39,15 +38,13 @@ func New(cfg string) (*Operator, error) {
 		LeaderElection:     false,
 	})
 	if err != nil {
-		log.Error(err, "error creating manager")
-		os.Exit(1)
+		return nil, err
 	}
 
 	vaultConfig := vault.DefaultConfig()
 	vaultClient, err := vault.NewClient(vaultConfig)
 	if err != nil {
-		log.Error(err, "error creating vault client")
-		os.Exit(1)
+		return nil, err
 	}
 
 	var backends []secretBackend
