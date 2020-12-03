@@ -261,8 +261,8 @@ func TestOperatorReconcileBlocked(t *testing.T) {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 	ab, err := newAWSBackend(&awsBackendConfig{
 		path: "aws",
-		rules: AWSRules{
-			AWSRule{
+		rules: awsRules{
+			awsRule{
 				NamespacePatterns: []string{
 					"notbar",
 				},
@@ -472,8 +472,8 @@ func TestAWSOperatorAdmitEvent(t *testing.T) {
 	// iam)
 	assert.False(t, ab.admitEvent("foobar", "", map[string]string{awsRoleAnnotation: "arn:aws:iam:111111111111:role/foobar-role"}))
 
-	ab.rules = AWSRules{
-		AWSRule{
+	ab.rules = awsRules{
+		awsRule{
 			NamespacePatterns: []string{
 				"foo",
 				"bar-*",
@@ -487,7 +487,7 @@ func TestAWSOperatorAdmitEvent(t *testing.T) {
 				"111111111111",
 			},
 		},
-		AWSRule{
+		awsRule{
 			NamespacePatterns: []string{
 				"kube-system",
 			},
@@ -497,12 +497,12 @@ func TestAWSOperatorAdmitEvent(t *testing.T) {
 				"syste?",
 			},
 		},
-		AWSRule{
+		awsRule{
 			RoleNamePatterns: []string{
 				"fuubar-*",
 			},
 		},
-		AWSRule{
+		awsRule{
 			NamespacePatterns: []string{
 				"fuubar",
 			},
