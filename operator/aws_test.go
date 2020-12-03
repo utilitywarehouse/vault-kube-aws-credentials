@@ -22,9 +22,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
-// TestAWSOperatorReconcile walks through creating, updating and removing objects
+// TestAWSBackendReconcile walks through creating, updating and removing objects
 // in vault based on the state of the annotation
-func TestAWSOperatorReconcile(t *testing.T) {
+func TestAWSBackendReconcile(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
@@ -150,9 +150,9 @@ func TestAWSOperatorReconcile(t *testing.T) {
 	assert.Empty(t, removedAWSRole)
 }
 
-// TestOperatorReconcileDelete tests that the objects are deleted from vault
+// TestAWSBackendReconcileDelete tests that the objects are deleted from vault
 // when the SA doesn't exist
-func TestOperatorReconcileDelete(t *testing.T) {
+func TestAWSBackendReconcileDelete(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
@@ -237,9 +237,9 @@ func TestOperatorReconcileDelete(t *testing.T) {
 	assert.Empty(t, removedAWSRole)
 }
 
-// TestOperatorReconcileBlocked tests that the objects aren't written to vault
+// TestAWSBackendReconcileBlocked tests that the objects aren't written to vault
 // if the request doesn't match a rule
-func TestOperatorReconcileBlocked(t *testing.T) {
+func TestAWSBackendReconcileBlocked(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
@@ -311,9 +311,9 @@ func TestOperatorReconcileBlocked(t *testing.T) {
 	assert.Empty(t, noAWSRole)
 }
 
-// TestAWSOperatorStart tests the garbage collection performed by the Start
+// TestAWSBackendStart tests the garbage collection performed by the Start
 // method
-func TestAWSOperatorStart(t *testing.T) {
+func TestAWSBackendStart(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = corev1.AddToScheme(scheme)
@@ -449,9 +449,9 @@ func TestAWSOperatorStart(t *testing.T) {
 	assert.NotEmpty(t, keptAWSRole)
 }
 
-// TestAWSOperatorAdmitEvent tests that events are allowed and disallowed
+// TestAWSBackendAdmitEvent tests that events are allowed and disallowed
 // according to the rules
-func TestAWSOperatorAdmitEvent(t *testing.T) {
+func TestAWSBackendAdmitEvent(t *testing.T) {
 	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
 
 	ab := &awsBackend{

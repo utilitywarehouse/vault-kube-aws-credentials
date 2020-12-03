@@ -30,7 +30,7 @@ path "{{ .Path }}/sts/{{ .Name }}" {
 }
 `
 
-//awsBackendConfig configures an awsBackend
+// awsBackendConfig configures an awsBackend
 type awsBackendConfig struct {
 	defaultTTL  time.Duration
 	path        string
