@@ -7,6 +7,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/go-logr/logr"
+	vault "github.com/hashicorp/vault/api"
 
 	"path/filepath"
 	"strings"
@@ -29,19 +30,25 @@ path "{{ .Path }}/sts/{{ .Name }}" {
 }
 `
 
+//awsBackendConfig configures an awsBackend
+type awsBackendConfig struct {
+	defaultTTL  time.Duration
+	path        string
+	rules       AWSRules
+	vaultClient *vault.Client
+}
+
 // awsBackend provides methods that allow service accounts to be reconciled
 // against the AWS secret backend in Vault
 type awsBackend struct {
-	defaultTTL time.Duration
-	path       string
-	rules      AWSRules
-	log        logr.Logger
-	tmpl       *template.Template
+	*awsBackendConfig
+	log  logr.Logger
+	tmpl *template.Template
 }
 
 // newAWSBackend returns a new configured awsBackend
-func newAWSBackend(config *awsFileConfig) (*awsBackend, error) {
-	if config.Path == "" {
+func newAWSBackend(config *awsBackendConfig) (*awsBackend, error) {
+	if config.path == "" {
 		return nil, fmt.Errorf("path can't be empty")
 	}
 
@@ -51,11 +58,9 @@ func newAWSBackend(config *awsFileConfig) (*awsBackend, error) {
 	}
 
 	return &awsBackend{
-		defaultTTL: config.DefaultTTL,
-		path:       config.Path,
-		rules:      config.Rules,
-		log:        log.WithName("aws"),
-		tmpl:       tmpl,
+		awsBackendConfig: config,
+		log:              log.WithName("aws"),
+		tmpl:             tmpl,
 	}, nil
 }
 
@@ -81,6 +86,30 @@ func (b *awsBackend) admitEvent(namespace, name string, annotations map[string]s
 	return false
 }
 
+// deleteRole removes the role indicated by 'key'
+func (b *awsBackend) deleteRole(key string) error {
+	if _, err := b.vaultClient.Logical().Delete(b.path + "/roles/" + key); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// listRoles lists all the AWS secret backend roles
+func (b *awsBackend) listRoles() ([]interface{}, error) {
+	roles, err := b.vaultClient.Logical().List(b.path + "/roles/")
+	if err != nil {
+		return []interface{}{}, err
+	}
+	if roles != nil {
+		if keys, ok := roles.Data["keys"].([]interface{}); ok {
+			return keys, nil
+		}
+	}
+
+	return []interface{}{}, nil
+}
+
 // renderPolicy injects the provided name into a policy allowing access
 // to the corresponding AWS secret role
 func (b *awsBackend) renderPolicy(name string) (string, error) {
@@ -98,19 +127,17 @@ func (b *awsBackend) renderPolicy(name string) (string, error) {
 	return policy.String(), nil
 }
 
-// roleData returns the data defined in the given annotations
-func (b *awsBackend) roleData(annotations map[string]string) map[string]interface{} {
-	return map[string]interface{}{
+// writeRole creates/updates an AWS secret backend role
+func (b *awsBackend) writeRole(key string, annotations map[string]string) error {
+	if _, err := b.vaultClient.Logical().Write(b.path+"/roles/"+key, map[string]interface{}{
 		"default_sts_ttl": int(b.defaultTTL.Seconds()),
 		"role_arns":       []string{annotations[awsRoleAnnotation]},
 		"credential_type": "assumed_role",
+	}); err != nil {
+		return err
 	}
-}
 
-// rolePath returns the path under which secret roles should be written for the
-// AWS secret backend
-func (b *awsBackend) rolePath() string {
-	return b.path + "/roles"
+	return nil
 }
 
 // AWSRules are a collection of rules.
