@@ -84,6 +84,9 @@ aws:
   # Enable the AWS backend
   enabled: false
 
+  # The default TTL of the credentials issued for a role
+  defaultTTL: 15m
+
   # The mount path of the AWS secret backend
   path: "aws"
 
