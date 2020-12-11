@@ -74,7 +74,7 @@ func New(cfg string) (*Operator, error) {
 	return &Operator{mgr: mgr}, nil
 }
 
-// Starts runs the operator
+// Start runs the operator
 func (o *Operator) Start() error {
 	return o.mgr.Start(ctrl.SetupSignalHandler())
 }
